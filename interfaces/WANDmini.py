@@ -17,32 +17,51 @@ limitations under the License.
 """
 
 import numpy as np
+import time
 from biogui.utils import WANDminiComm
 
-packetSize: int = 200  # This is the size of the buffer in cp2130_libusb_read
+packetSize: int = 200  # buffer size in cp2130_libusb_read
 
-#x00 is a placeholder for the cp2130_libusb_flush_radio_fifo, .1s is a delay, and \x01 is the startStream placeholder.
-startSeq: list[bytes | float] = [b"\x00", 0.1, b"\x01"]
-#\x00 is the stopstream placeholder, and .1s is a delay
-stopSeq: list[bytes | float] = [b"\x00", 0.1]
-#from run function in ProcessThread class
 sigInfo: dict = {"emg": {"fs": 1000, "nCh": 67}}
 
 def decodeFn(data: bytes, cp2130Handle) -> dict[str, np.ndarray]:
     nCh = sigInfo["emg"]["nCh"]
 
-    if data[1] == 198: #checks status byte for valid data
-        raw_bytes = data[2:]  # Skip first 2 bytes (status or header)
-        values = [raw_bytes[2*i + 1] << 8 | raw_bytes[2*i] for i in range(nCh)] #extracts 67 16-bit values
+    if data[1] == 198:  # valid CRC byte
+        raw_bytes = data[2:]
+        values = [raw_bytes[2*i + 1] << 8 | raw_bytes[2*i] for i in range(nCh)]
         emg = np.asarray(values, dtype=np.float32).reshape(1, nCh)
-    else: #return empty array 
+    else:
         emg = np.zeros((1, nCh), dtype=np.float32)
 
     return {"emg": emg}
 
+def _flush_fifo(handle):
+    WANDminiComm.cp2130_libusb_flush_radio_fifo(handle)
+
+def _start_stream(handle):
+    WANDminiComm.startStream(handle)
+
+def _stop_stream(handle):
+    WANDminiComm.stopStream(handle)
+
+startSeq: list[callable | float] = [
+    _flush_fifo,
+    0.1,
+    _start_stream,
+]
+
+stopSeq: list[callable | float] = [
+    _stop_stream,
+    0.1,
+]
+
 def configureDevice(handle) -> bool:
-    if not WANDminiComm.cp2130_libusb_set_usb_config(handle):
-        return False
-    if not WANDminiComm.cp2130_libusb_set_spi_word(handle):
-        return False
-    return WANDminiComm.writeReg(handle, 0, 0x0C, 1)  # Wide input mode
+    return (
+        WANDminiComm.cp2130_libusb_set_usb_config(handle)
+        and WANDminiComm.cp2130_libusb_set_spi_word(handle)
+        and WANDminiComm.writeReg(handle, 0, 0x0C, 1)
+    )
+
+def exitDevice(handle, kernelAttached, deviceList, context):
+    WANDminiComm.exit_cp2130(handle, kernelAttached, deviceList, context)
