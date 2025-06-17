@@ -139,30 +139,18 @@ class Cp2130DataSourceWorker(DataSourceWorker):
     interface : object
         Interface module or object with attributes:
             - packetSize : int
-            - startSeq : list[bytes | float]
-            - stopSeq : list[bytes | float]
+            - startSeq : list[Callable[[], None] or Callable[[Any], None]]
+            - stopSeq : list[Callable[[], None] or Callable[[Any], None]]
             - decodeFn(data: bytes, handle) -> dict[str, np.ndarray]
             - sigInfo : dict describing signal metadata
     cp2130Handle : libusb1.libusb_device_handle_p
         Handle to the CP2130 device.
-    kernelAttached : bool
-        Whether the kernel driver was attached.
-    deviceList : libusb1.libusb_device_p_p
-        List of USB devices.
-    context : libusb1.libusb_context_p
-        USB context.
-    wideInput : bool
-        Whether wide input mode is enabled.
     """
 
     def __init__(
         self,
         interface,
         cp2130Handle,
-        kernelAttached: bool,
-        deviceList,
-        context,
-        wideInput: bool,
     ) -> None:
         super().__init__()
 
@@ -176,12 +164,8 @@ class Cp2130DataSourceWorker(DataSourceWorker):
 
         # USB
         self._cp2130Handle = cp2130Handle
-        self._kernelAttached = kernelAttached
-        self._deviceList = deviceList
-        self._context = context
-        self._wideInput = wideInput
 
-        # Data buffer and logging
+        # Buffer and log
         self._buffer = QByteArray()
         self._collected_data = []
         self._crc_flags = []
@@ -196,65 +180,48 @@ class Cp2130DataSourceWorker(DataSourceWorker):
 
     def startCollecting(self) -> None:
         """Begin streaming data from the device."""
-
-        if self._wideInput:
-            if not WANDminiComm.writeReg(self._cp2130Handle, 0, 0x0C, 1):
-                errMsg = "Failed to enable wide input mode."
-                self.errorOccurred.emit(errMsg)
-                logging.error(f"DataWorker: {errMsg}")
-                return
-
-        for command in self._startSeq:
-            if isinstance(command, bytes):
-                if command == b"\x00":
-                    WANDminiComm.cp2130_libusb_flush_radio_fifo(self._cp2130Handle)
-                elif command == b"\x01":
-                    WANDminiComm.startStream(self._cp2130Handle)
-            elif isinstance(command, float):
-                time.sleep(command)
-
-        self._sample_count = 0
-        self._crc_count = 0
-        logging.info("DataWorker: CP2130 communication started.")
+        try:
+            for command in self._startSeq:
+                command(self._cp2130Handle)
+            logging.info("DataWorker: CP2130 communication started.")
+        except Exception as e:
+            self.errorOccurred.emit(str(e))
+            logging.error(f"DataWorker start error: {str(e)}")
 
     def stopCollecting(self) -> None:
         """Stop data streaming and clean up."""
+        try:
+            for command in self._stopSeq:
+                command(self._cp2130Handle)
 
-        for command in self._stopSeq:
-            if isinstance(command, bytes):
-                if command == b"\x00":
-                    WANDminiComm.stopStream(self._cp2130Handle)
-            elif isinstance(command, float):
-                time.sleep(command)
+            if self._sample_count > 0:
+                os.makedirs("data", exist_ok=True)
+                channel_count = self._sigInfo["emg"]["nCh"]
+                df = pd.DataFrame(self._collected_data, columns=[f"Ch{i}" for i in range(channel_count)])
+                df["CRC"] = self._crc_flags
+                df.to_csv(self._csv_file, index=False)
+                logging.info(f"Data saved to {self._csv_file}")
 
-        if self._sample_count > 0:
-            logging.info(f"DataWorker: Streamed {self._sample_count} samples, {self._crc_count} CRC errors.")
-            os.makedirs("data", exist_ok=True)
-            channel_count = self._sigInfo["emg"]["nCh"]
-            df = pd.DataFrame(self._collected_data, columns=[f"Ch{i}" for i in range(channel_count)])
-            df["CRC"] = self._crc_flags
-            df.to_csv(self._csv_file, index=False)
-            logging.info(f"Data saved to {self._csv_file}")
-
-        WANDminiComm.exit_cp2130(self._cp2130Handle, self._kernelAttached, self._deviceList, self._context)
-        self._buffer = QByteArray()
-        logging.info("DataWorker: CP2130 communication stopped.")
+            # Also optional: self._interface.cleanup(self._cp2130Handle) if included
+            self._buffer = QByteArray()
+            logging.info("DataWorker: CP2130 communication stopped.")
+        except Exception as e:
+            logging.error(f"DataWorker stop error: {str(e)}")
 
     def _collectData(self) -> None:
         """Fill input buffer when data is ready."""
-        data = WANDminiComm.cp2130_libusb_read(self._cp2130Handle)
-        if data:
-            self._buffer.append(QByteArray(bytes(data)))
-            if self._buffer.size() >= self._packetSize:
-                packet = self._buffer.mid(0, self._packetSize).data()
-                self._sample_count += 1
-                decoded = self._decodeFn(packet, self._cp2130Handle)
-                if packet[1] != 198:  # CRC error
-                    self._crc_count += 1
-                if not hasattr(self, "_collected_data"):
-                    self._collected_data = []
-                    self._crc_flags = []
-                self._collected_data.append(decoded["emg"][0])
-                self._crc_flags.append(packet[1] != 198)
-                self.dataPacketReady.emit(packet)
-                self._buffer.remove(0, self._packetSize)
+        try:
+            data = self._interface.readData(self._cp2130Handle)
+            if data:
+                self._buffer.append(QByteArray(bytes(data)))
+                while self._buffer.size() >= self._packetSize:
+                    packet = self._buffer.mid(0, self._packetSize).data()
+                    self._sample_count += 1
+                    decoded = self._decodeFn(packet, self._cp2130Handle)
+                    self._crc_flags.append(packet[1] != 198)
+                    self._collected_data.append(decoded["emg"][0])
+                    self.dataPacketReady.emit(packet)
+                    self._buffer.remove(0, self._packetSize)
+        except Exception as e:
+            logging.error(f"Error reading from device: {str(e)}")
+
