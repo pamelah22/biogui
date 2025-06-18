@@ -92,6 +92,7 @@ def getDataSourceWorker(
         DataSourceType.FIFO: FIFODataSourceWorker,
         DataSourceType.BLE: BLEDataSourceWorker,
         DataSourceType.MIC: MicrophoneDataSourceWorker,
+        DataSourceType.USB: Cp2130DataSourceWorker
     }
     return dataSourceDict[dataSourceType](packetSize, startSeq, stopSeq, **kwargs)
 
