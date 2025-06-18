@@ -27,6 +27,7 @@ from .serial import SerialConfigWidget, SerialDataSourceWorker
 from .tcp import TCPConfigWidget, TCPDataSourceWorker
 from .ble import BLEConfigWidget, BLEDataSourceWorker
 from .microphone import MicrophoneConfigWidget, MicrophoneDataSourceWorker
+from .cp2130 import Cp2130ConfigWidget, Cp2130DataSourceWorker
 
 def getConfigWidget(
     dataSourceType: DataSourceType, parent: QWidget
@@ -52,6 +53,7 @@ def getConfigWidget(
         DataSourceType.FIFO: FIFOConfigWidget,
         DataSourceType.BLE: BLEConfigWidget,
         DataSourceType.MIC: MicrophoneConfigWidget,
+        DataSourceType.USB: Cp2130ConfigWidget
     }
     return configWidgetDict[dataSourceType](parent)
 
