@@ -9,7 +9,7 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-
+import biogui_rc
 
 class Ui_Cp2130ConfigWidget(object):
     def setupUi(self, Cp2130ConfigWidget):
@@ -46,14 +46,4 @@ class Ui_Cp2130ConfigWidget(object):
         self.label1.setText(_translate("Cp2130ConfigWidget", "USB Devices:"))
         self.cp2130ComboBox.setToolTip(_translate("Cp2130ConfigWidget", "List of available serial ports"))
         self.rescancp2130Button.setToolTip(_translate("Cp2130ConfigWidget", "Rescan serial ports"))
-import biogui_rc
 
-
-if __name__ == "__main__":
-    import sys
-    app = QtWidgets.QApplication(sys.argv)
-    Cp2130ConfigWidget = QtWidgets.QWidget()
-    ui = Ui_Cp2130ConfigWidget()
-    ui.setupUi(Cp2130ConfigWidget)
-    Cp2130ConfigWidget.show()
-    sys.exit(app.exec_())
