@@ -26,8 +26,6 @@ from ctypes import byref
 
 import pandas as pd
 
-from __future__ import annotations
-
 import logging
 
 from PySide6.QtWidgets import QWidget
