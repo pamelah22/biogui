@@ -15,10 +15,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-import struct
 import numpy as np
 import time
-
+from typing import Callable, Union
 import libusb1
 from ctypes import byref, create_string_buffer, c_int, sizeof, POINTER, \
     cast, c_uint8, c_uint16, c_ubyte, string_at, c_void_p, cdll, addressof, \
@@ -318,13 +317,13 @@ def _start_stream(handle):
 def _stop_stream(handle):
     WANDminiComm.stopStream(handle)
 
-startSeq: list[callable | float] = [
+startSeq: list[Union[Callable, float]] = [
     _flush_fifo,
     0.1,
     _start_stream,
 ]
 
-stopSeq: list[callable | float] = [
+stopSeq: list[Union[Callable | float] = [
     _stop_stream,
     0.1,
 ]
