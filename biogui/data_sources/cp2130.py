@@ -25,19 +25,23 @@ import datetime
 from ctypes import byref
 
 import pandas as pd
-from PyQt5.QtCore import QByteArray
-from PyQt5.QtWidgets import QWidget, QCheckBox, QComboBox, QPushButton
-from PyQt5.QtGui import QIcon
-import libusb1
 
-from biogui.utils import detectTheme
-from ..ui.cp2130_data_source_config_widget_ui import Ui_Cp2130ConfigWidget
+from __future__ import annotations
+
+import logging
+
+from PySide6.QtWidgets import QWidget
+
 from .base import (
     DataSourceConfigResult,
     DataSourceConfigWidget,
     DataSourceType,
     DataSourceWorker,
 )
+import libusb1
+from biogui.utils import detectTheme
+from ..ui.cp2130_data_source_config_widget_ui import Ui_Cp2130ConfigWidget
+
 
 
 class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
