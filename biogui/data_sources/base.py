@@ -35,7 +35,7 @@ class DataSourceType(Enum):
     FIFO = "FIFO"
     BLE = "BLE"
     MIC = "Microphone"
-    USB = "cp2130"
+    USB = "USB_SPI"
 
 
 @dataclass
