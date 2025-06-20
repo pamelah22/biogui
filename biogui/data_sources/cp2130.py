@@ -22,24 +22,23 @@ import logging
 import time
 import os
 import datetime
-from ctypes import byref
 
 import pandas as pd
 
-import logging
-
+from PySide6.QtCore import QByteArray
 from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import QIcon
 
+import usb1  # Python libusb wrapper
+
+from biogui.utils import detectTheme
+from ..ui.cp2130_data_source_config_widget_ui import Ui_Cp2130ConfigWidget
 from .base import (
     DataSourceConfigResult,
     DataSourceConfigWidget,
     DataSourceType,
     DataSourceWorker,
 )
-import libusb1
-from biogui.utils import detectTheme
-from ..ui.cp2130_data_source_config_widget_ui import Ui_Cp2130ConfigWidget
-
 
 
 class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
@@ -50,8 +49,8 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
         theme = detectTheme()
         self.rescancp2130Button.setIcon(QIcon.fromTheme("view-refresh", QIcon(f":icons/{theme}/reload")))
 
-        self._deviceList = []
-        self._context = None
+        self._context: usb1.USBContext | None = None
+        self._deviceList: list[usb1.USBDevice] = []
         self._cp2130Handle = None
         self._kernelAttached = 0
 
@@ -59,7 +58,8 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
         self._rescanDevices()
 
     def validateConfig(self) -> DataSourceConfigResult:
-        if self.cp2130ComboBox.currentIndex() < 0 or not self._deviceList:
+        index = self.cp2130ComboBox.currentIndex()
+        if index < 0 or index >= len(self._deviceList):
             return DataSourceConfigResult(
                 dataSourceType=DataSourceType.CP2130,
                 dataSourceConfig={},
@@ -70,7 +70,7 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
         return DataSourceConfigResult(
             dataSourceType=DataSourceType.CP2130,
             dataSourceConfig={
-                "device": self._deviceList[self.cp2130ComboBox.currentIndex()],
+                "device": self._deviceList[index],
                 "context": self._context,
                 "kernelAttached": self._kernelAttached,
             },
@@ -83,36 +83,25 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
 
     def _rescanDevices(self) -> None:
         self.cp2130ComboBox.clear()
-        self._deviceList = []
+        self._deviceList.clear()
 
-        context = libusb1.libusb_context_p()
-        if libusb1.libusb_init(byref(context)) != 0:
-            logging.error("Could not initialize libusb.")
-            return
+        try:
+            self._context = usb1.USBContext()
+            VID, PID = 0x10C4, 0x87A0
 
-        device_list = libusb1.libusb_device_p_p()
-        count = libusb1.libusb_get_device_list(context, byref(device_list))
-        if count < 0:
-            logging.error("Error getting USB device list.")
-            libusb1.libusb_exit(context)
-            return
-
-        VID, PID = 0x10C4, 0x87A0
-
-        for i in range(count):
-            device = device_list[i]
-            descriptor = libusb1.libusb_device_descriptor()
-            if libusb1.libusb_get_device_descriptor(device, byref(descriptor)) == 0:
-                if descriptor.idVendor == VID and descriptor.idProduct == PID:
+            for device in self._context.getDeviceList(skip_on_error=True):
+                if device.getVendorID() == VID and device.getProductID() == PID:
                     self._deviceList.append(device)
-                    self.cp2130ComboBox.addItem(f"CP2130 #{len(self._deviceList)}")
+                    self.cp2130ComboBox.addItem(
+                        f"CP2130 - Bus {device.getBusNumber()} Addr {device.getDeviceAddress()}"
+                    )
 
-        if not self._deviceList:
-            self.cp2130ComboBox.addItem("No CP2130 devices found")
-            libusb1.libusb_free_device_list(device_list, 1)
-            libusb1.libusb_exit(context)
-        else:
-            self._context = context
+            if not self._deviceList:
+                self.cp2130ComboBox.addItem("No CP2130 devices found")
+        except usb1.USBError as e:
+            logging.error(f"USB error during device scan: {e}")
+            self.cp2130ComboBox.addItem("USB scan error")
+
 
 
 class Cp2130DataSourceWorker(DataSourceWorker):
