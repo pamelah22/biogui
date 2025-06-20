@@ -18,7 +18,7 @@ limitations under the License.
 import struct
 import numpy as np
 import time
-from biogui.utils import WANDminiComm
+from ..utils import WANDminiComm
 
 packetSize: int = 200  # buffer size in cp2130_libusb_read
 
