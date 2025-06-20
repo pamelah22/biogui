@@ -323,7 +323,7 @@ startSeq: list[Union[Callable, float]] = [
     _start_stream,
 ]
 
-stopSeq: list[Union[Callable | float] = [
+stopSeq: list[Union[Callable, float]] = [
     _stop_stream,
     0.1,
 ]
