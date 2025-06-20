@@ -25,7 +25,7 @@ class Ui_Cp2130ConfigWidget(object):
         self.formLayout = QtWidgets.QFormLayout(Cp2130ConfigWidget)
         self.formLayout.setObjectName("formLayout")
         self.label1 = QtWidgets.QLabel(Cp2130ConfigWidget)
-        self.label1.setAlignment(QtCore.Qt.Qt::AlignmentFlag::AlignRight|QtCore.Qt.Qt::AlignmentFlag::AlignTrailing|QtCore.Qt.Qt::AlignmentFlag::AlignVCenter)
+        self.label1.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignTrailing | QtCore.Qt.AlignVCenter)
         self.label1.setObjectName("label1")
         self.formLayout.setWidget(0, QtWidgets.QFormLayout.LabelRole, self.label1)
         self.horizontalLayout = QtWidgets.QHBoxLayout()
