@@ -20,13 +20,18 @@ from __future__ import annotations
 
 import logging
 import time
-import pandas as pd
 import os
-from PySide6.QtCore import QByteArray, QIODevice
-from PySide6.QtWidgets import QWidget, QCheckBox
-from biogui.utils import detectTheme
+import datetime
+from ctypes import byref
 
-from ..ui.cp2130_data_source_config_widget_ui import Ui_Cp2130DataSourceConfigWidget
+import pandas as pd
+from PyQt5.QtCore import QByteArray
+from PyQt5.QtWidgets import QWidget, QCheckBox, QComboBox, QPushButton
+from PyQt5.QtGui import QIcon
+import libusb1
+
+from biogui.utils import detectTheme
+from ..ui.cp2130_data_source_config_widget_ui import Ui_Cp2130ConfigWidget
 from .base import (
     DataSourceConfigResult,
     DataSourceConfigWidget,
@@ -35,142 +40,95 @@ from .base import (
 )
 
 
-class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130DataSourceConfigWidget):
-    """
-    Widget to configure the CP2130 USB source.
-
-    Parameters
-    ----------
-    parent : QWidget or None, default=None
-        Parent QWidget.
-    """
-
+class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        # Setup UI
         self.setupUi(self)
         theme = detectTheme()
-        self.connectButton.setIcon(
-            QIcon.fromTheme("network-connect", QIcon(f":icons/{theme}/connect"))
-        )
+        self.rescancp2130Button.setIcon(QIcon.fromTheme("view-refresh", QIcon(f":icons/{theme}/reload")))
 
-        self.connectButton.clicked.connect(self._checkDevice)
-        self._checkDevice()
+        self._deviceList = []
+        self._context = None
+        self._cp2130Handle = None
+        self._kernelAttached = 0
 
-        self.destroyed.connect(self.deleteLater)
+        self.rescancp2130Button.clicked.connect(self._rescanDevices)
+        self._rescanDevices()
 
     def validateConfig(self) -> DataSourceConfigResult:
-        """
-        Validate the configuration.
-
-        Returns
-        -------
-        DataSourceConfigResult
-            Configuration result.
-        """
-        if not hasattr(self, "_cp2130Handle") or not self._cp2130Handle:
+        if self.cp2130ComboBox.currentIndex() < 0 or not self._deviceList:
             return DataSourceConfigResult(
                 dataSourceType=DataSourceType.CP2130,
                 dataSourceConfig={},
                 isValid=False,
-                errMessage="No CP2130 device connected.",
+                errMessage="No CP2130 device selected.",
             )
 
         return DataSourceConfigResult(
             dataSourceType=DataSourceType.CP2130,
             dataSourceConfig={
-                "cp2130Handle": self._cp2130Handle,
-                "kernelAttached": self._kernelAttached,
-                "deviceList": self._deviceList,
+                "device": self._deviceList[self.cp2130ComboBox.currentIndex()],
                 "context": self._context,
-                "wideInput": self.wideInputCheckBox.isChecked(),
+                "kernelAttached": self._kernelAttached,
             },
             isValid=True,
             errMessage="",
         )
 
-    def prefill(self, config: dict) -> None:
-        """
-        Pre-fill the form with the provided configuration.
-
-        Parameters
-        ----------
-        config : dict
-            Dictionary with the configuration.
-        """
-        if "wideInput" in config:
-            self.wideInputCheckBox.setChecked(config["wideInput"])
-
     def getFieldsInTabOrder(self) -> list[QWidget]:
-        """
-        Get the list of fields in tab order.
+        return [self.cp2130ComboBox, self.rescancp2130Button]
 
-        Returns
-        -------
-        list of QWidgets
-            List of the QWidgets in tab order.
-        """
-        return [self.connectButton, self.wideInputCheckBox]
+    def _rescanDevices(self) -> None:
+        self.cp2130ComboBox.clear()
+        self._deviceList = []
 
-    def _checkDevice(self) -> None:
-        """
-        Check for CP2130 device and attempt to connect.
-        """
-        try:
-            self._cp2130Handle, self._kernelAttached, self._deviceList, self._context = WANDminiComm.open_cp2130()
-            if not cp2130_interface.configureDevice(self._cp2130Handle):
-                raise Exception("Failed to configure CP2130 device.")
-            self.connectButton.setText("Connected")
-            self.connectButton.setEnabled(False)
-        except Exception as e:
-            self._cp2130Handle = None
-            self.connectButton.setText("Connect")
-            self.connectButton.setEnabled(True)
-            logging.error(f"Failed to connect to CP2130: {str(e)}")
+        context = libusb1.libusb_context_p()
+        if libusb1.libusb_init(byref(context)) != 0:
+            logging.error("Could not initialize libusb.")
+            return
+
+        device_list = libusb1.libusb_device_p_p()
+        count = libusb1.libusb_get_device_list(context, byref(device_list))
+        if count < 0:
+            logging.error("Error getting USB device list.")
+            libusb1.libusb_exit(context)
+            return
+
+        VID, PID = 0x10C4, 0x87A0
+
+        for i in range(count):
+            device = device_list[i]
+            descriptor = libusb1.libusb_device_descriptor()
+            if libusb1.libusb_get_device_descriptor(device, byref(descriptor)) == 0:
+                if descriptor.idVendor == VID and descriptor.idProduct == PID:
+                    self._deviceList.append(device)
+                    self.cp2130ComboBox.addItem(f"CP2130 #{len(self._deviceList)}")
+
+        if not self._deviceList:
+            self.cp2130ComboBox.addItem("No CP2130 devices found")
+            libusb1.libusb_free_device_list(device_list, 1)
+            libusb1.libusb_exit(context)
+        else:
+            self._context = context
 
 
 class Cp2130DataSourceWorker(DataSourceWorker):
-    """
-    DataSourceWorker for CP2130 USB devices using a provided interface.
-
-    Parameters
-    ----------
-    interface : object
-        Interface module or object with attributes:
-            - packetSize : int
-            - startSeq : list[Callable[[], None] or Callable[[Any], None]]
-            - stopSeq : list[Callable[[], None] or Callable[[Any], None]]
-            - decodeFn(data: bytes, handle) -> dict[str, np.ndarray]
-            - sigInfo : dict describing signal metadata
-    cp2130Handle : libusb1.libusb_device_handle_p
-        Handle to the CP2130 device.
-    """
-
-    def __init__(
-        self,
-        interface,
-        cp2130Handle,
-    ) -> None:
+    def __init__(self, interface, cp2130Handle) -> None:
         super().__init__()
 
-        # Interface abstraction
         self._interface = interface
         self._packetSize = interface.packetSize
         self._startSeq = interface.startSeq
         self._stopSeq = interface.stopSeq
         self._decodeFn = interface.decodeFn
         self._sigInfo = interface.sigInfo
-
-        # USB
         self._cp2130Handle = cp2130Handle
 
-        # Buffer and log
         self._buffer = QByteArray()
         self._collected_data = []
         self._crc_flags = []
         self._sample_count = 0
-        self._crc_count = 0
         self._csv_file = f"data/{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.csv"
 
         self.destroyed.connect(self.deleteLater)
@@ -179,7 +137,6 @@ class Cp2130DataSourceWorker(DataSourceWorker):
         return "CP2130 USB Device"
 
     def startCollecting(self) -> None:
-        """Begin streaming data from the device."""
         try:
             for command in self._startSeq:
                 command(self._cp2130Handle)
@@ -189,7 +146,6 @@ class Cp2130DataSourceWorker(DataSourceWorker):
             logging.error(f"DataWorker start error: {str(e)}")
 
     def stopCollecting(self) -> None:
-        """Stop data streaming and clean up."""
         try:
             for command in self._stopSeq:
                 command(self._cp2130Handle)
@@ -202,14 +158,12 @@ class Cp2130DataSourceWorker(DataSourceWorker):
                 df.to_csv(self._csv_file, index=False)
                 logging.info(f"Data saved to {self._csv_file}")
 
-            # Also optional: self._interface.cleanup(self._cp2130Handle) if included
             self._buffer = QByteArray()
             logging.info("DataWorker: CP2130 communication stopped.")
         except Exception as e:
             logging.error(f"DataWorker stop error: {str(e)}")
 
     def _collectData(self) -> None:
-        """Fill input buffer when data is ready."""
         try:
             data = self._interface.readData(self._cp2130Handle)
             if data:
@@ -224,4 +178,3 @@ class Cp2130DataSourceWorker(DataSourceWorker):
                     self._buffer.remove(0, self._packetSize)
         except Exception as e:
             logging.error(f"Error reading from device: {str(e)}")
-
