@@ -105,17 +105,17 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
 
 
 class Cp2130DataSourceWorker(DataSourceWorker):
-    def __init__(self, packetSize, startSeq, stopSeq, device, cp2130Handle, interface) -> None:
+    def __init__(self, packetSize, startSeq, stopSeq, device, cp2130Handle, context=None, kernelAttached=None) -> None:
         super().__init__()
 
-        self._interface = interface
+        self._context = context
         self._device = device
-        self._packetSize = interface.packetSize
-        self._startSeq = interface.startSeq
-        self._stopSeq = interface.stopSeq
-        self._decodeFn = interface.decodeFn
-        self._sigInfo = interface.sigInfo
-        self._cp2130Handle = cp2130Handle
+        self._packetSize = packetSize
+        self._startSeq = startSeq
+        self._stopSeq = stopSeq
+        self._decodeFn = decodeFn
+        self._sigInfo = sigInfo
+        self._kernel = KernelAttached
 
         self._buffer = QByteArray()
         self._collected_data = []
