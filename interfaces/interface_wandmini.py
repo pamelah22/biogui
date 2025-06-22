@@ -127,67 +127,6 @@ def exit_cp2130(cp2130Handle, kernelAttached, deviceList, context):
         libusb1.libusb_exit(context)
     exit()
 
-def open_cp2130():
-    print('Opening cp2130...')
-    context = libusb1.libusb_context_p()
-    deviceList = libusb1.libusb_device_p_p()
-    deviceCount = 0
-    check = 0
-
-    deviceDescriptor = libusb1.libusb_device_descriptor()
-    device = libusb1.libusb_device_p()
-    cp2130Handle = libusb1.libusb_device_handle_p()
-
-    kernelAttached = 0
-
-    if libusb1.libusb_init(byref(context)) != 0:
-        print('Could not initialize libusb!')
-        exit_cp2130()
-
-   
-    deviceCount = libusb1.libusb_get_device_list(context, byref(deviceList))
-
-    if deviceCount <= 0:
-        print('No devices found!')
-        exit_cp2130()
-
-    
-    for i in range(0, deviceCount):
-        if libusb1.libusb_get_device_descriptor(deviceList[i], byref(deviceDescriptor)) == 0:
-            if (deviceDescriptor.idVendor == 0x10C4) and (deviceDescriptor.idProduct == 0x87A0):
-                device = deviceList[i]
-                check = 1 
-                break
-
-    if device == None:
-        print('CP2130 device not found!')
-        exit_cp2130()
-    
-    if check == 0:
-        print('CP2130 device not found')
-        return
-
-    if libusb1.libusb_open(device, byref(cp2130Handle)) != 0:
-        print('Could not open device!')
-        exit_cp2130()
-
-    if libusb1.libusb_kernel_driver_active(cp2130Handle, 0) != 0:
-        libusb1.libusb_detach_kernel_driver(cp2130Handle, 0)
-        kernelAttached = 1
-
-    if libusb1.libusb_claim_interface(cp2130Handle, 0) != 0:
-        print('Could not claim interface!')
-        exit_cp2130()
-
-    if cp2130_libusb_set_usb_config(cp2130Handle) == False:
-        exit_cp2130()
-    if cp2130_libusb_set_spi_word(cp2130Handle) == False:
-        exit_cp2130()
-
-    print('Successfully opened CP2130!')
-    return cp2130Handle, kernelAttached, deviceList, context
-
-# NM Communcation Stuff
 
 class Cmd(Enum):
     Reset = 0x01
@@ -309,13 +248,13 @@ def decodeFn(data: bytes, cp2130Handle) -> dict[str, np.ndarray]:
     return {"emg": emg}
 
 def _flush_fifo(handle):
-    WANDminiComm.cp2130_libusb_flush_radio_fifo(handle)
+    cp2130_libusb_flush_radio_fifo(handle)
 
 def _start_stream(handle):
-    WANDminiComm.startStream(handle)
+    startStream(handle)
 
 def _stop_stream(handle):
-    WANDminiComm.stopStream(handle)
+    stopStream(handle)
 
 startSeq: list[Union[Callable, float]] = [
     _flush_fifo,
@@ -330,11 +269,11 @@ stopSeq: list[Union[Callable, float]] = [
 
 def configureDevice(handle) -> bool:
     return (
-        WANDminiComm.cp2130_libusb_set_usb_config(handle)
-        and WANDminiComm.cp2130_libusb_set_spi_word(handle)
-        and WANDminiComm.writeReg(handle, 0, 0x0C, 1)
+        cp2130_libusb_set_usb_config(handle)
+        and cp2130_libusb_set_spi_word(handle)
+        and writeReg(handle, 0, 0x0C, 1)
     )
 
 def exitDevice(handle, kernelAttached, deviceList, context):
-    WANDminiComm.exit_cp2130(handle, kernelAttached, deviceList, context)
+    exit_cp2130(handle, kernelAttached, deviceList, context)
 
