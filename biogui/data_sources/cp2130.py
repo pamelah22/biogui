@@ -105,7 +105,7 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
 
 
 class Cp2130DataSourceWorker(DataSourceWorker):
-    def __init__(self, interface, cp2130Handle, device: str) -> None:
+    def __init__(self, packetSize, startSeq, stopSeq, device, cp2130Handle, interface) -> None:
         super().__init__()
 
         self._interface = interface
