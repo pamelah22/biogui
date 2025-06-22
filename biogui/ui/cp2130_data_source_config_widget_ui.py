@@ -52,6 +52,6 @@ class Ui_Cp2130ConfigWidget(object):
         _translate = QtCore.QCoreApplication.translate
         Cp2130ConfigWidget.setWindowTitle(_translate("Cp2130ConfigWidget", "Serial Data Source Configuration"))
         self.label1.setText(_translate("Cp2130ConfigWidget", "USB Devices:"))
-        self.cp2130ComboBox.setToolTip(_translate("Cp2130ConfigWidget", "List of available serial ports"))
-        self.rescancp2130Button.setToolTip(_translate("Cp2130ConfigWidget", "Rescan serial ports"))
+        self.cp2130ComboBox.setToolTip(_translate("Cp2130ConfigWidget", "List of available devices"))
+        self.rescancp2130Button.setToolTip(_translate("Cp2130ConfigWidget", "Rescan for cp2130 devices"))
 
