@@ -53,7 +53,7 @@ def getConfigWidget(
         DataSourceType.FIFO: FIFOConfigWidget,
         DataSourceType.BLE: BLEConfigWidget,
         DataSourceType.MIC: MicrophoneConfigWidget,
-        DataSourceType.USB: Cp2130ConfigWidget
+        DataSourceType.CP2130: Cp2130ConfigWidget
     }
     return configWidgetDict[dataSourceType](parent)
 
@@ -92,7 +92,7 @@ def getDataSourceWorker(
         DataSourceType.FIFO: FIFODataSourceWorker,
         DataSourceType.BLE: BLEDataSourceWorker,
         DataSourceType.MIC: MicrophoneDataSourceWorker,
-        DataSourceType.USB: Cp2130DataSourceWorker
+        DataSourceType.CP2130: Cp2130DataSourceWorker
     }
     return dataSourceDict[dataSourceType](packetSize, startSeq, stopSeq, **kwargs)
 
