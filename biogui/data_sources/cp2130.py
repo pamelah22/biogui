@@ -42,7 +42,7 @@ from .base import (
 
 
 class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, device: str) -> None:
         super().__init__(parent)
 
         self.setupUi(self)
@@ -109,6 +109,7 @@ class Cp2130DataSourceWorker(DataSourceWorker):
         super().__init__()
 
         self._interface = interface
+        self._device = device
         self._packetSize = interface.packetSize
         self._startSeq = interface.startSeq
         self._stopSeq = interface.stopSeq
