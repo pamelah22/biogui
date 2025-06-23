@@ -28,7 +28,7 @@ class Ui_Cp2130ConfigWidget(object):
         self.formLayout = QtWidgets.QFormLayout(Cp2130ConfigWidget)
         self.formLayout.setObjectName("formLayout")
         self.usb_devices = QtWidgets.QLabel(Cp2130ConfigWidget)
-        self.usb_devices.setAlignment(QtCore.Qt.Qt::AlignmentFlag::AlignRight|QtCore.Qt.Qt::AlignmentFlag::AlignTrailing|QtCore.Qt.Qt::AlignmentFlag::AlignVCenter)
+        self.usb_devices.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         self.usb_devices.setObjectName("usb_devices")
         self.formLayout.setWidget(0, QtWidgets.QFormLayout.LabelRole, self.usb_devices)
         self.horizontalLayout = QtWidgets.QHBoxLayout()
