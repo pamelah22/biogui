@@ -51,7 +51,7 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
 
         self._context: usb1.USBContext | None = None
         self._deviceList: list[usb1.USBDevice] = []
-        self._cp2130Handle = None
+        self._cp2130Handle: usb1.USBDeviceHandle | None = None
         self._kernelAttached = 0
 
         self.rescancp2130Button.clicked.connect(self._rescanDevices)
@@ -72,6 +72,7 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
             dataSourceConfig={
                 "device": self._deviceList[index],
                 "context": self._context,
+                "cp2130Handle": selected_device.open(),  
                 "kernelAttached": self._kernelAttached,
             },
             isValid=True,
@@ -105,68 +106,117 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
 
 
 class Cp2130DataSourceWorker(DataSourceWorker):
-    def __init__(self, packetSize, startSeq, stopSeq, device, cp2130Handle, context=None, kernelAttached=None) -> None:
+    def __init__(
+        self,
+        packetSize: int,
+        startSeq: list[Callable],
+        stopSeq: list[Callable],
+        device: usb1.USBDevice,
+        cp2130Handle: usb1.USBDeviceHandle,
+        context: usb1.USBContext | None = None,
+        kernelAttached: int | None = None
+    ) -> None:
         super().__init__()
 
-        self._context = context
-        self._device = device
         self._packetSize = packetSize
         self._startSeq = startSeq
         self._stopSeq = stopSeq
-        self._decodeFn = decodeFn
-        self._sigInfo = sigInfo
-        self._kernel = KernelAttached
+
+        self._device = device
+        self._cp2130Handle = cp2130Handle
+        self._context = context
+        self._kernelAttached = kernelAttached
 
         self._buffer = QByteArray()
-        self._collected_data = []
-        self._crc_flags = []
-        self._sample_count = 0
-        self._csv_file = f"data/{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.csv"
 
         self.destroyed.connect(self.deleteLater)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "CP2130 USB Device"
+   
+    @staticmethod   
+    def exit_cp2130(cp2130Handle, kernelAttached, deviceList, context):
+        if cp2130Handle:
+            libusb1.libusb_release_interface(cp2130Handle, 0)
+        if kernelAttached:
+            libusb1.libusb_attach_kernel_driver(cp2130Handle,0)
+        if cp2130Handle:
+            libusb1.libusb_close(cp2130Handle)
+        if deviceList:
+            libusb1.libusb_free_device_list(deviceList, 1)
+        if context:
+            libusb1.libusb_exit(context)
+        exit()
 
     def startCollecting(self) -> None:
         try:
             for command in self._startSeq:
                 command(self._cp2130Handle)
-            logging.info("DataWorker: CP2130 communication started.")
+            logging.info("CP2130 communication started.")
         except Exception as e:
-            self.errorOccurred.emit(str(e))
-            logging.error(f"DataWorker start error: {str(e)}")
+            self.errorOccurred.emit(f"Start error: {str(e)}")
+            logging.error(f"Start error: {str(e)}")
 
     def stopCollecting(self) -> None:
         try:
             for command in self._stopSeq:
                 command(self._cp2130Handle)
 
-            if self._sample_count > 0:
-                os.makedirs("data", exist_ok=True)
-                channel_count = self._sigInfo["emg"]["nCh"]
-                df = pd.DataFrame(self._collected_data, columns=[f"Ch{i}" for i in range(channel_count)])
-                df["CRC"] = self._crc_flags
-                df.to_csv(self._csv_file, index=False)
-                logging.info(f"Data saved to {self._csv_file}")
-
-            self._buffer = QByteArray()
-            logging.info("DataWorker: CP2130 communication stopped.")
+            self._buffer.clear()
+            logging.info("CP2130 communication stopped.")
+            exit_cp2130
         except Exception as e:
-            logging.error(f"DataWorker stop error: {str(e)}")
+            logging.error(f"Stop error: {str(e)}")
 
-    def _collectData(self) -> None:
-        try:
-            data = self._interface.readData(self._cp2130Handle)
-            if data:
-                self._buffer.append(QByteArray(bytes(data)))
-                while self._buffer.size() >= self._packetSize:
-                    packet = self._buffer.mid(0, self._packetSize).data()
-                    self._sample_count += 1
-                    decoded = self._decodeFn(packet, self._cp2130Handle)
-                    self._crc_flags.append(packet[1] != 198)
-                    self._collected_data.append(decoded["emg"][0])
-                    self.dataPacketReady.emit(packet)
-                    self._buffer.remove(0, self._packetSize)
-        except Exception as e:
-            logging.error(f"Error reading from device: {str(e)}")
+def _collectData(self) -> None:
+    try:
+        # Prepare read command buffer (only if your device requires it)
+        read_command_buf = (c_ubyte * 8)(
+            0x00, 0x00,
+            0x00,
+            0x00,
+            self._packetSize, 0x00, 0x00, 0x00
+        )
+        bytesWritten = c_int()
+        usbTimeout = 500
+
+        # Send read command
+        err = libusb1.libusb_bulk_transfer(
+            self._cp2130Handle.handle,
+            0x02,
+            read_command_buf,
+            sizeof(read_command_buf),
+            byref(bytesWritten),
+            usbTimeout,
+        )
+        if err or bytesWritten.value != sizeof(read_command_buf):
+            raise RuntimeError(f"Failed to send read command. Code: {err}")
+
+        # Read data from device
+        read_input_buf = (c_ubyte * self._packetSize)()
+        bytesRead = c_int()
+        err = libusb1.libusb_bulk_transfer(
+            self._cp2130Handle.handle,
+            0x81,
+            read_input_buf,
+            sizeof(read_input_buf),
+            byref(bytesRead),
+            usbTimeout,
+        )
+        if err:
+            raise RuntimeError(f"Failed to read input buffer. Code: {err}")
+
+        # Append incoming data to buffer
+        data_bytes = bytes(read_input_buf[:bytesRead.value])
+        self._buffer.append(data_bytes)
+
+        # While buffer has full packets, emit them
+        while self._buffer.size() >= self._packetSize:
+            packet = self._buffer.mid(0, self._packetSize).data()
+            self.dataPacketReady.emit(packet)
+            self._buffer.remove(0, self._packetSize)
+
+    except Exception as e:
+        msg = f"Error reading from device: {str(e)}"
+        logging.error(msg)
+        self.errorOccurred.emit(msg)
