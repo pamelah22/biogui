@@ -67,17 +67,27 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
                 errMessage="No CP2130 device selected.",
             )
 
+    def getSelectedChannels(self) -> list[int]:
+        return [
+            self.plot_1.value(),
+            self.plot_2.value(),
+            self.plot_3.value(),
+            self.plot_4.value()
+        ]
+
+
         return DataSourceConfigResult(
             dataSourceType=DataSourceType.CP2130,
             dataSourceConfig={
                 "device": self._deviceList[index],
                 "context": self._context,
-                "cp2130Handle": self._deviceList[index].open(),  
+                "cp2130Handle": self._deviceList[index].open(),
                 "kernelAttached": self._kernelAttached,
+                "selectedChannels": self.getSelectedChannels()
             },
             isValid=True,
             errMessage="",
-        )
+        )`
 
     def getFieldsInTabOrder(self) -> list[QWidget]:
         return [self.cp2130ComboBox, self.rescancp2130Button]
@@ -114,14 +124,16 @@ class Cp2130DataSourceWorker(DataSourceWorker):
         device: usb1.USBDevice,
         cp2130Handle: usb1.USBDeviceHandle,
         context: usb1.USBContext | None = None,
-        kernelAttached: int | None = None
+        kernelAttached: int | None = None,
+        selectedChannels: list[int] = None  # new argument
     ) -> None:
         super().__init__()
 
         self._packetSize = packetSize
         self._startSeq = startSeq
         self._stopSeq = stopSeq
-
+        
+        self._selectedChannels = selectedChannels or [0, 1, 2, 3]
         self._device = device
         self._cp2130Handle = cp2130Handle
         self._context = context
