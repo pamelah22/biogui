@@ -230,6 +230,21 @@ def writeReg(cp2130Handle, nm, addr, data):
 
 def clearErr(cp2130Handle,nm):
     sendCmd(cp2130Handle,nm,Cmd.ClearErr.value)
+    
+def configureDevice(handle) -> bool:
+    return (
+        cp2130_libusb_set_usb_config(handle)
+        and cp2130_libusb_set_spi_word(handle)
+        and writeReg(handle, 0, 0x0C, 1)
+    )
+
+def exitDevice(handle, kernelAttached, deviceList, context):
+    exit_cp2130(handle, kernelAttached, deviceList, context)
+
+def _configure(handle):
+    if not configureDevice(handle):
+        raise RuntimeError("Device configuration failed.")
+
 
 packetSize: int = 200  # buffer size in cp2130_libusb_read
 
@@ -257,6 +272,7 @@ def _stop_stream(handle):
     stopStream(handle)
 
 startSeq: list[Union[Callable, float]] = [
+    _configure,
     _flush_fifo,
     0.1,
     _start_stream,
@@ -267,13 +283,4 @@ stopSeq: list[Union[Callable, float]] = [
     0.1,
 ]
 
-def configureDevice(handle) -> bool:
-    return (
-        cp2130_libusb_set_usb_config(handle)
-        and cp2130_libusb_set_spi_word(handle)
-        and writeReg(handle, 0, 0x0C, 1)
-    )
-
-def exitDevice(handle, kernelAttached, deviceList, context):
-    exit_cp2130(handle, kernelAttached, deviceList, context)
 
