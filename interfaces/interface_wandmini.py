@@ -114,19 +114,6 @@ def cp2130_libusb_set_usb_config(handle):
     print('Successfully set value of spi_word on chip:')
     return True
 
-def exit_cp2130(cp2130Handle, kernelAttached, deviceList, context):
-    if cp2130Handle:
-        libusb1.libusb_release_interface(cp2130Handle, 0)
-    if kernelAttached:
-        libusb1.libusb_attach_kernel_driver(cp2130Handle,0)
-    if cp2130Handle:
-        libusb1.libusb_close(cp2130Handle)
-    if deviceList:
-        libusb1.libusb_free_device_list(deviceList, 1)
-    if context:
-        libusb1.libusb_exit(context)
-    exit()
-
 
 class Cmd(Enum):
     Reset = 0x01
@@ -237,9 +224,6 @@ def configureDevice(handle) -> bool:
         and cp2130_libusb_set_spi_word(handle)
         and writeReg(handle, 0, 0x0C, 1)
     )
-
-def exitDevice(handle, kernelAttached, deviceList, context):
-    exit_cp2130(handle, kernelAttached, deviceList, context)
 
 def _configure(handle):
     if not configureDevice(handle):
