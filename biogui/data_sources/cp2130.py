@@ -72,7 +72,7 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
             dataSourceConfig={
                 "device": self._deviceList[index],
                 "context": self._context,
-                "cp2130Handle": selected_device.open(),  
+                "cp2130Handle": self._deviceList[index].open(),  
                 "kernelAttached": self._kernelAttached,
             },
             isValid=True,
@@ -135,15 +135,13 @@ class Cp2130DataSourceWorker(DataSourceWorker):
         return "CP2130 USB Device"
    
     @staticmethod   
-    def exit_cp2130(cp2130Handle, kernelAttached, deviceList, context):
+    def exit_cp2130(cp2130Handle, kernelAttached, context):
         if cp2130Handle:
             libusb1.libusb_release_interface(cp2130Handle, 0)
         if kernelAttached:
             libusb1.libusb_attach_kernel_driver(cp2130Handle,0)
         if cp2130Handle:
             libusb1.libusb_close(cp2130Handle)
-        if deviceList:
-            libusb1.libusb_free_device_list(device, 1)
         if context:
             libusb1.libusb_exit(context)
         exit()
@@ -164,7 +162,7 @@ class Cp2130DataSourceWorker(DataSourceWorker):
 
             self._buffer.clear()
             logging.info("CP2130 communication stopped.")
-            exit_cp2130
+            exit_cp2130(self._cp2130Handle, self._kernelAttached, self._context)
         except Exception as e:
             logging.error(f"Stop error: {str(e)}")
 
