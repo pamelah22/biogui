@@ -234,18 +234,6 @@ packetSize: int = 200  # buffer size in cp2130_libusb_read
 
 sigInfo: dict = {"emg": {"fs": 1000, "nCh": 67}}
 
-def decodeFn(data: bytes, cp2130Handle) -> dict[str, np.ndarray]:
-    nCh = sigInfo["emg"]["nCh"]
-
-    if data[1] == 198:  # valid CRC byte
-        raw_bytes = data[2:]
-        values = [raw_bytes[2*i + 1] << 8 | raw_bytes[2*i] for i in range(nCh)]
-        emg = np.asarray(values, dtype=np.float32).reshape(1, nCh)
-    else:
-        emg = np.zeros((1, nCh), dtype=np.float32)
-
-    return {"emg": emg}
-
 def _flush_fifo(handle):
     cp2130_libusb_flush_radio_fifo(handle)
 
@@ -267,4 +255,14 @@ stopSeq: list[Union[Callable, float]] = [
     0.1,
 ]
 
+def decodeFn(data: bytes, cp2130Handle) -> dict[str, np.ndarray]:
+    nCh = sigInfo["emg"]["nCh"]
 
+    if data[1] == 198:  # valid CRC byte
+        raw_bytes = data[2:]
+        values = [raw_bytes[2*i + 1] << 8 | raw_bytes[2*i] for i in range(nCh)]
+        emg = np.asarray(values, dtype=np.float32).reshape(1, nCh)
+    else:
+        emg = np.zeros((1, nCh), dtype=np.float32)
+
+    return {"emg": emg}
