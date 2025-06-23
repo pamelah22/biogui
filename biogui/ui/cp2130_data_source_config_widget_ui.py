@@ -69,6 +69,10 @@ class Ui_Cp2130ConfigWidget(object):
         self.channel_2 = QtWidgets.QLabel(Cp2130ConfigWidget)
         self.channel_2.setObjectName("channel_2")
         self.formLayout.setWidget(2, QtWidgets.QFormLayout.LabelRole, self.channel_2)
+        self.plot_1.setRange(0, 63)
+        self.plot_2.setRange(0, 63)
+        self.plot_3.setRange(0, 63)
+        self.plot_4.setRange(0, 63)
 
         self.retranslateUi(Cp2130ConfigWidget)
         QtCore.QMetaObject.connectSlotsByName(Cp2130ConfigWidget)
