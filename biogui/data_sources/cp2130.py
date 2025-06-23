@@ -143,7 +143,7 @@ class Cp2130DataSourceWorker(DataSourceWorker):
         if cp2130Handle:
             libusb1.libusb_close(cp2130Handle)
         if deviceList:
-            libusb1.libusb_free_device_list(deviceList, 1)
+            libusb1.libusb_free_device_list(device, 1)
         if context:
             libusb1.libusb_exit(context)
         exit()
