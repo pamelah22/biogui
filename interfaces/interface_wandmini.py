@@ -229,6 +229,9 @@ def _configure(handle):
     if not configureDevice(handle):
         raise RuntimeError("Device configuration failed.")
 
+channels_selected = [1, 2, 3, 4]
+
+num_channels = 4
 
 packetSize: int = 200  # buffer size in cp2130_libusb_read
 
@@ -255,17 +258,19 @@ stopSeq: list[Union[Callable, float]] = [
     0.1,
 ]
 
-def decodeFn(data: bytes, cp2130Handle, selectedChannels: list[int]) -> dict[str, np.ndarray]:
+def decodeFn(data: bytes):
     nCh = sigInfo["emg"]["nCh"]  # total number of EMG channels
 
     if data[1] == 198:  # CRC valid
         raw_bytes = data[2:]
+
         values = [
             raw_bytes[2 * ch + 1] << 8 | raw_bytes[2 * ch]
-            for ch in selectedChannels if 0 <= ch < nCh
+            for ch in channels_selected if 0 <= ch < nCh
         ]
-        emg = np.asarray(values, dtype=np.float32).reshape(1, len(selectedChannels))
+
+        emg = np.asarray(values, dtype=np.float32).reshape(1, len(channels_selected))
     else:
-        emg = np.zeros((1, len(selectedChannels)), dtype=np.float32)
+        emg = np.zeros((1, len(channels_selected)), dtype=np.float32)
 
     return {"emg": emg}
