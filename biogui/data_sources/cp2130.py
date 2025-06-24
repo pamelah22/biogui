@@ -78,7 +78,7 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
             },
             isValid=True,
             errMessage="",
-        )`
+        )
 
     def getFieldsInTabOrder(self) -> list[QWidget]:
         return [self.cp2130ComboBox, self.rescancp2130Button]
