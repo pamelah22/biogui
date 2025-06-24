@@ -67,14 +67,6 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
                 errMessage="No CP2130 device selected.",
             )
 
-    def getSelectedChannels(self) -> list[int]:
-        return [
-            self.plot_1.value(),
-            self.plot_2.value(),
-            self.plot_3.value(),
-            self.plot_4.value()
-        ]
-
 
         return DataSourceConfigResult(
             dataSourceType=DataSourceType.CP2130,
@@ -83,7 +75,6 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
                 "context": self._context,
                 "cp2130Handle": self._deviceList[index].open(),
                 "kernelAttached": self._kernelAttached,
-                "selectedChannels": self.getSelectedChannels()
             },
             isValid=True,
             errMessage="",
@@ -125,7 +116,6 @@ class Cp2130DataSourceWorker(DataSourceWorker):
         cp2130Handle: usb1.USBDeviceHandle,
         context: usb1.USBContext | None = None,
         kernelAttached: int | None = None,
-        selectedChannels: list[int] = None  # new argument
     ) -> None:
         super().__init__()
 
@@ -133,7 +123,6 @@ class Cp2130DataSourceWorker(DataSourceWorker):
         self._startSeq = startSeq
         self._stopSeq = stopSeq
         
-        self._selectedChannels = selectedChannels or [0, 1, 2, 3]
         self._device = device
         self._cp2130Handle = cp2130Handle
         self._context = context
