@@ -229,7 +229,7 @@ def _configure(handle):
     if not configureDevice(handle):
         raise RuntimeError("Device configuration failed.")
 
-channels_selected = [1, 2, 3, 4]
+channels_selected = [32, 34, 36, 38]
 
 num_channels = 4
 
