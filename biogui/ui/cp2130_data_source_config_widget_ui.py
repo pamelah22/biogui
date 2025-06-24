@@ -19,8 +19,6 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
 from PySide6.QtWidgets import (QApplication, QComboBox, QLineEdit, QPushButton,
     QSizePolicy, QWidget)
 
-import biogui_rc
-
 class Ui_Cp2130ConfigWidget(object):
     def setupUi(self, Cp2130ConfigWidget):
         Cp2130ConfigWidget.setObjectName("Cp2130ConfigWidget")
