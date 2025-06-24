@@ -255,14 +255,17 @@ stopSeq: list[Union[Callable, float]] = [
     0.1,
 ]
 
-def decodeFn(data: bytes, cp2130Handle) -> dict[str, np.ndarray]:
-    nCh = sigInfo["emg"]["nCh"]
+def decodeFn(data: bytes, cp2130Handle, selectedChannels: list[int]) -> dict[str, np.ndarray]:
+    nCh = sigInfo["emg"]["nCh"]  # total number of EMG channels
 
-    if data[1] == 198:  # valid CRC byte
+    if data[1] == 198:  # CRC valid
         raw_bytes = data[2:]
-        values = [raw_bytes[2*i + 1] << 8 | raw_bytes[2*i] for i in range(nCh)]
-        emg = np.asarray(values, dtype=np.float32).reshape(1, nCh)
+        values = [
+            raw_bytes[2 * ch + 1] << 8 | raw_bytes[2 * ch]
+            for ch in selectedChannels if 0 <= ch < nCh
+        ]
+        emg = np.asarray(values, dtype=np.float32).reshape(1, len(selectedChannels))
     else:
-        emg = np.zeros((1, nCh), dtype=np.float32)
+        emg = np.zeros((1, len(selectedChannels)), dtype=np.float32)
 
     return {"emg": emg}
