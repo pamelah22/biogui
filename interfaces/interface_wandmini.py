@@ -16,6 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 import numpy as np
+import logging
 import time
 from typing import Callable, Union
 import libusb1
@@ -23,6 +24,8 @@ from ctypes import byref, create_string_buffer, c_int, sizeof, POINTER, \
     cast, c_uint8, c_uint16, c_ubyte, string_at, c_void_p, cdll, addressof, \
     c_char
 import struct
+from typing import Callable, Union
+
 from enum import Enum
 
 # CP2130 Specific Stuff
@@ -57,7 +60,7 @@ def cp2130_libusb_flush_radio_fifo(handle):
     usbTimeout = 500
 
     if libusb1.libusb_bulk_transfer(handle, 0x02, write_command_buf, sizeof(write_command_buf), byref(bytesWritten), usbTimeout):
-        print('Error in bulk transfer!')
+        logging.error('Error in bulk transfer at flush fifo!')
         return False
     return True
 
@@ -77,7 +80,7 @@ def cp2130_libusb_read(handle):
     # print('Begin Read')
     error_code = libusb1.libusb_bulk_transfer(handle, 0x02, read_command_buf, sizeof(read_command_buf), byref(bytesWritten), usbTimeout)
     if error_code:
-        print('Error in bulk transfer command= {}'.format(error_code))
+        logging.error(f"Error in OUT transfer: {error_code}")
         return False
     if bytesWritten.value != sizeof(read_command_buf):
         print('Error in bulk transfer write size')
@@ -85,8 +88,7 @@ def cp2130_libusb_read(handle):
         return False
     error_code = libusb1.libusb_bulk_transfer(handle, 0x81, read_input_buf, sizeof(read_input_buf), byref(bytesRead), usbTimeout)
     if error_code:
-        print(bytesRead.value)
-        print('Error in bulk transfer read = {}'.format(error_code))
+        logging.error(f"Error in IN transfer: {error_code}")
         return False
     return read_input_buf
 
@@ -97,7 +99,7 @@ def cp2130_libusb_set_spi_word(handle):
 
     error_code = libusb1.libusb_control_transfer(handle, 0x40, 0x31, 0x0000, 0x0000, control_buf_out, sizeof(control_buf_out), usbTimeout)
     if error_code != sizeof(control_buf_out):
-        print('Error in bulk transfer')
+        logging.error('Error in bulk transfer at set_spi_word')
         return False
     print('Successfully set value of spi_word on chip:')
     return True
@@ -109,7 +111,7 @@ def cp2130_libusb_set_usb_config(handle):
 
     error_code = libusb1.libusb_control_transfer(handle, 0x40, 0x61, 0xA5F1, 0x000A, control_buf_out, sizeof(control_buf_out), usbTimeout)
     if error_code != sizeof(control_buf_out):
-        print('Error in bulk transfer')
+        logging.error('Error in bulk transfer at set_usb_config')
         return False
     print('Successfully set value of spi_word on chip:')
     return True
@@ -140,9 +142,11 @@ def regWr(handle, reg, value):
 
 def startStream(handle):
     regWr(handle, Reg.req, 0x0020)
+    logging.info("streaming has begun")
 
 def stopStream(handle):
     regWr(handle, Reg.req, 0x0010)
+    logging.info("streaming has stopped")
 
 def writeOp(handle, nm, addr, data):
     if nm == 0:
@@ -184,7 +188,7 @@ def readReg(handle, nm, addr):
 
     while d[1] != 4 and count < 150:
         d = cp2130_libusb_read(handle)
-        count = count + 1
+        count += 1
     if d[1] == 4:
         add = d[2] + 256*d[3]
         val = d[4] + 256*d[5]
@@ -198,44 +202,58 @@ def readReg(handle, nm, addr):
 
 def writeReg(cp2130Handle, nm, addr, data):
     timeout = 10
-    success = False
-    while not success:
-        timeout = timeout - 1
-        if timeout == 0:
-            break
+    while timeout > 0:
+        timeout -= 1
+        logging.debug(f"writeReg attempt (timeout={timeout})")
         writeOp(cp2130Handle, nm, addr, data)
-        readSuccess = False
+
         readTimeout = 10
-        while not readSuccess:
-            readTimeout = readTimeout - 1
-            if readTimeout == 0:
-                break
-            val, readSuccess = readReg(cp2130Handle,0,addr)
-        if readSuccess:
-            success = val == data
-    return success
+        while readTimeout > 0:
+            readTimeout -= 1
+            val, readSuccess = readReg(cp2130Handle, 0, addr)
+            if readSuccess:
+                logging.debug(f"writeReg readback success: wrote {hex(data)}, read {hex(val)}")
+                if val == data:
+                    return True
+                else:
+                    logging.warning(f"writeReg mismatch: wrote {hex(data)}, read {hex(val)}")
+            time.sleep(0.01)  # give time between retries
+    logging.error(f"writeReg failed: wrote {hex(data)}, never confirmed")
+    return False
+
+
 
 def clearErr(cp2130Handle,nm):
     sendCmd(cp2130Handle,nm,Cmd.ClearErr.value)
     
 def configureDevice(handle) -> bool:
-    return (
+       return (
         cp2130_libusb_set_usb_config(handle)
         and cp2130_libusb_set_spi_word(handle)
-        and writeReg(handle, 0, 0x0C, 1)
     )
 
 def _configure(handle):
     if not configureDevice(handle):
         raise RuntimeError("Device configuration failed.")
+    # Attempt to communicate with WANDmini by writing a known value
+    try:
+        connected = writeReg(handle, 0, 0x0F, 0xBEEF)
+        if connected:
+            logging.info("Successfully connected to WANDmini!")
+        else:
+            logging.warning("WANDmini writeReg failed — check connection.")
+    except Exception as e:
+        logging.error(f"Exception during WANDmini connection: {str(e)}")
+        raise RuntimeError("Failed to connect to WANDmini.")
 
-channels_selected = [32, 34, 36, 38]
 
-num_channels = 4
+channels_selected = [32,38]
+
+total_channels = 64
 
 packetSize: int = 200  # buffer size in cp2130_libusb_read
 
-sigInfo: dict = {"emg": {"fs": 1000, "nCh": 67}}
+sigInfo: dict = {"emg": {"fs": 1000, "nCh": len(channels_selected)}}
 
 def _flush_fifo(handle):
     cp2130_libusb_flush_radio_fifo(handle)
@@ -259,18 +277,20 @@ stopSeq: list[Union[Callable, float]] = [
 ]
 
 def decodeFn(data: bytes):
-    nCh = sigInfo["emg"]["nCh"]  # total number of EMG channels
+    # CRC check
+    if data[1] != 198:
+        return {"emg": np.zeros((1, len(channels_selected)), dtype=np.float32)}
 
-    if data[1] == 198:  # CRC valid
-        raw_bytes = data[2:]
+    raw_bytes = data[2:]
+    values = []
 
-        values = [
-            raw_bytes[2 * ch + 1] << 8 | raw_bytes[2 * ch]
-            for ch in channels_selected if 0 <= ch < nCh
-        ]
+    for ch in channels_selected:
+        if 0 <= ch < total_channels:
+            i = 2 * ch
+            value = raw_bytes[i + 1] << 8 | raw_bytes[i]
+            values.append(value)
+        else:
+            logging.warning(f"Channel {ch} out of range")
 
-        emg = np.asarray(values, dtype=np.float32).reshape(1, len(channels_selected))
-    else:
-        emg = np.zeros((1, len(channels_selected)), dtype=np.float32)
-
+    emg = np.array(values, dtype=np.float32).reshape(1, len(channels_selected))
     return {"emg": emg}
