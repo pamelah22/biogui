@@ -1,35 +1,16 @@
-"""
-Classes for the CP2130 USB data source.
-
-Copyright 2025 Mattia Orlandi, Pierangelo Maria Rapa
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
 from __future__ import annotations
 
 import logging
-import time
-import os
-import datetime
+from ctypes import POINTER, byref, c_int, c_ubyte, sizeof
 
-import pandas as pd
-
+import libusb1
+import usb1  # For device enumeration only
 from PySide6.QtCore import QByteArray
 from PySide6.QtWidgets import QWidget
 from PySide6.QtGui import QIcon
-
-import usb1  # Python libusb wrapper
+import time
+from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, Signal
 
 from biogui.utils import detectTheme
 from ..ui.cp2130_data_source_config_widget_ui import Ui_Cp2130ConfigWidget
@@ -49,10 +30,15 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
         theme = detectTheme()
         self.rescancp2130Button.setIcon(QIcon.fromTheme("view-refresh", QIcon(f":icons/{theme}/reload")))
 
-        self._context: usb1.USBContext | None = None
-        self._deviceList: list[usb1.USBDevice] = []
-        self._cp2130Handle: usb1.USBDeviceHandle | None = None
-        self._kernelAttached = 0
+        self._deviceList = []
+        self.deviceList = libusb1.libusb_device_p_p()
+        self.device = libusb1.libusb_device_p()
+        self.cp2130Handle = libusb1.libusb_device_handle_p()
+
+        # init libusb
+        self.context = libusb1.libusb_context_p()
+        if libusb1.libusb_init(byref(self.context)) != 0:
+            print('Could not initialize libusb!')
 
         self.rescancp2130Button.clicked.connect(self._rescanDevices)
         self._rescanDevices()
@@ -67,14 +53,38 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
                 errMessage="No CP2130 device selected.",
             )
 
+        device = self._deviceList[index]
+        self.cp2130Handle = libusb1.libusb_device_handle_p()
+        kernelAttached = 0
+
+        if libusb1.libusb_open(device, byref(self.cp2130Handle)) != 0:
+            return DataSourceConfigResult(
+                dataSourceType=DataSourceType.CP2130,
+                dataSourceConfig={},
+                isValid=False,
+                errMessage="Could not open device",
+            )
+
+        if libusb1.libusb_kernel_driver_active(self.cp2130Handle, 0) != 0:
+            libusb1.libusb_detach_kernel_driver(self.cp2130Handle, 0)
+            kernelAttached = 1
+
+        if libusb1.libusb_claim_interface(self.cp2130Handle, 0) != 0:
+            return DataSourceConfigResult(
+                dataSourceType=DataSourceType.CP2130,
+                dataSourceConfig={},
+                isValid=False,
+                errMessage="Could not claim interface",
+            )
 
         return DataSourceConfigResult(
             dataSourceType=DataSourceType.CP2130,
             dataSourceConfig={
-                "device": self._deviceList[index],
-                "context": self._context,
-                "cp2130Handle": self._deviceList[index].open(),
-                "kernelAttached": self._kernelAttached,
+                "device": device,
+                "context": self.context,
+                "cp2130Handle": self.cp2130Handle,
+                "kernelAttached": kernelAttached,
+                "deviceList": self.deviceList,
             },
             isValid=True,
             errMessage="",
@@ -85,137 +95,167 @@ class Cp2130ConfigWidget(DataSourceConfigWidget, Ui_Cp2130ConfigWidget):
 
     def _rescanDevices(self) -> None:
         self.cp2130ComboBox.clear()
-        self._deviceList.clear()
+        self._deviceList = []
 
-        try:
-            self._context = usb1.USBContext()
-            VID, PID = 0x10C4, 0x87A0
+        self.context = libusb1.libusb_context_p()
+        if libusb1.libusb_init(byref(self.context)) != 0:
+            logging.error("Could not initialize libusb context")
+            self.cp2130ComboBox.addItem("LibUSB init failed")
+            return
 
-            for device in self._context.getDeviceList(skip_on_error=True):
-                if device.getVendorID() == VID and device.getProductID() == PID:
+        device_list = libusb1.libusb_device_p_p()
+        device_count = libusb1.libusb_get_device_list(self.context, byref(device_list))
+
+        if device_count <= 0:
+            self.cp2130ComboBox.addItem("No CP2130 devices found")
+            return
+
+        for i in range(device_count):
+            device = device_list[i]
+            desc = libusb1.libusb_device_descriptor()
+            if libusb1.libusb_get_device_descriptor(device, byref(desc)) == 0:
+                if desc.idVendor == 0x10C4 and desc.idProduct == 0x87A0:
                     self._deviceList.append(device)
-                    self.cp2130ComboBox.addItem(
-                        f"CP2130 - Bus {device.getBusNumber()} Addr {device.getDeviceAddress()}"
-                    )
+                    self.cp2130ComboBox.addItem(f"CP2130 - Device {i}")
 
-            if not self._deviceList:
-                self.cp2130ComboBox.addItem("No CP2130 devices found")
-        except usb1.USBError as e:
-            logging.error(f"USB error during device scan: {e}")
-            self.cp2130ComboBox.addItem("USB scan error")
+        if not self._deviceList:
+            self.cp2130ComboBox.addItem("No CP2130 devices found")
+
+        self.deviceList = device_list  # Needed for cleanup later
 
 
 
 class Cp2130DataSourceWorker(DataSourceWorker):
+    plotDataReady = Signal(list)
+    updateTime = Signal()
+    errorOccurred = Signal(str)
     def __init__(
         self,
         packetSize: int,
-        startSeq: list[Callable],
-        stopSeq: list[Callable],
+        startSeq: list,
+        stopSeq: list,
         device: usb1.USBDevice,
-        cp2130Handle: usb1.USBDeviceHandle,
-        context: usb1.USBContext | None = None,
-        kernelAttached: int | None = None,
+        cp2130Handle: POINTER(libusb1.libusb_device_handle),
+        context: libusb1.libusb_context_p,
+        kernelAttached: int,
+        deviceList: libusb1.libusb_device_p,
     ) -> None:
         super().__init__()
 
         self._packetSize = packetSize
         self._startSeq = startSeq
         self._stopSeq = stopSeq
-        
+
         self._device = device
         self._cp2130Handle = cp2130Handle
         self._context = context
         self._kernelAttached = kernelAttached
+        self.deviceList = deviceList
 
         self._buffer = QByteArray()
 
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._collectData)
+        self._timer.setInterval(10)
+
         self.destroyed.connect(self.deleteLater)
+
+        self.samples = 0  # optional, useful for logging
+        self.numMins = 0  # optional
+        self.start_time = time.time()  # optiona
+
 
     def __str__(self) -> str:
         return "CP2130 USB Device"
-   
-    @staticmethod   
-    def exit_cp2130(cp2130Handle, kernelAttached, context):
+
+    @staticmethod
+    def exit_cp2130(cp2130Handle, kernelAttached, context, deviceList):
         if cp2130Handle:
             libusb1.libusb_release_interface(cp2130Handle, 0)
         if kernelAttached:
-            libusb1.libusb_attach_kernel_driver(cp2130Handle,0)
+            libusb1.libusb_attach_kernel_driver(cp2130Handle, 0)
         if cp2130Handle:
             libusb1.libusb_close(cp2130Handle)
+        if deviceList:
+            libusb1.libusb_free_device_list(deviceList, 1)
         if context:
             libusb1.libusb_exit(context)
-        exit()
 
     def startCollecting(self) -> None:
         try:
             for command in self._startSeq:
-                command(self._cp2130Handle)
+                if isinstance(command, float):
+                    time.sleep(command)
+                elif callable(command):
+                    command(self._cp2130Handle)
             logging.info("CP2130 communication started.")
+
+            # Start QTimer loop
+            self._timer.start()
+
+
         except Exception as e:
             self.errorOccurred.emit(f"Start error: {str(e)}")
             logging.error(f"Start error: {str(e)}")
 
     def stopCollecting(self) -> None:
         try:
+            # Stop QTimer loop
+            self._timer.stop()
+
             for command in self._stopSeq:
-                command(self._cp2130Handle)
+                if isinstance(command, float):
+                    time.sleep(command)
+                elif callable(command):
+                    command(self._cp2130Handle)
 
             self._buffer.clear()
             logging.info("CP2130 communication stopped.")
-            exit_cp2130(self._cp2130Handle, self._kernelAttached, self._context)
+            #self.exit_cp2130(self._cp2130Handle, self._kernelAttached, self._context, self.deviceList)
         except Exception as e:
             logging.error(f"Stop error: {str(e)}")
+            self.errorOccurred.emit(f"Stop error: {str(e)}")
+    def _collectData(self):
+        """Read data from the CP2130 via USB and emit when enough is available."""
+        # Attempt USB read
+        byte_data = self._cp2130_libusb_read(self._cp2130Handle)
+        if byte_data is None:
+            logging.warning("USB read failed.")
+            return
 
-def _collectData(self) -> None:
-    try:
-        # Prepare read command buffer (only if your device requires it)
-        read_command_buf = (c_ubyte * 8)(
-            0x00, 0x00,
-            0x00,
-            0x00,
-            self._packetSize, 0x00, 0x00, 0x00
-        )
-        bytesWritten = c_int()
-        usbTimeout = 500
+        # Append to QByteArray buffer
+        self._buffer.append(byte_data)
 
-        # Send read command
-        err = libusb1.libusb_bulk_transfer(
-            self._cp2130Handle.handle,
-            0x02,
-            read_command_buf,
-            sizeof(read_command_buf),
-            byref(bytesWritten),
-            usbTimeout,
-        )
-        if err or bytesWritten.value != sizeof(read_command_buf):
-            raise RuntimeError(f"Failed to send read command. Code: {err}")
-
-        # Read data from device
-        read_input_buf = (c_ubyte * self._packetSize)()
-        bytesRead = c_int()
-        err = libusb1.libusb_bulk_transfer(
-            self._cp2130Handle.handle,
-            0x81,
-            read_input_buf,
-            sizeof(read_input_buf),
-            byref(bytesRead),
-            usbTimeout,
-        )
-        if err:
-            raise RuntimeError(f"Failed to read input buffer. Code: {err}")
-
-        # Append incoming data to buffer
-        data_bytes = bytes(read_input_buf[:bytesRead.value])
-        self._buffer.append(data_bytes)
-
-        # While buffer has full packets, emit them
+        # Emit full packets
         while self._buffer.size() >= self._packetSize:
             packet = self._buffer.mid(0, self._packetSize).data()
             self.dataPacketReady.emit(packet)
             self._buffer.remove(0, self._packetSize)
 
-    except Exception as e:
-        msg = f"Error reading from device: {str(e)}"
-        logging.error(msg)
-        self.errorOccurred.emit(msg)
+
+    def _cp2130_libusb_read(self, handle):
+        """Perform a bulk read from CP2130 and return as bytes, or None on failure."""
+        # Prepare read command
+        read_cmd_buf = (c_ubyte * 8)(0x00, 0x00, 0x00, 0x00, 200, 0x00, 0x00, 0x00)
+        bytes_written = c_int()
+        usb_timeout = 500
+
+        # Send OUT transfer (command)
+        err = libusb1.libusb_bulk_transfer(
+            handle, 0x02, read_cmd_buf, sizeof(read_cmd_buf), byref(bytes_written), usb_timeout
+        )
+        if err or bytes_written.value != sizeof(read_cmd_buf):
+            print(f"Write error {err} or incorrect size {bytes_written.value}")
+            return None
+
+        # Prepare buffer for IN transfer
+        buf = (c_ubyte * 200)()
+        bytes_read = c_int()
+        err = libusb1.libusb_bulk_transfer(
+            handle, 0x81, buf, sizeof(buf), byref(bytes_read), usb_timeout
+        )
+        if err:
+            print(f"Read error {err}")
+            return None
+
+        return bytes(buf[:bytes_read.value])
