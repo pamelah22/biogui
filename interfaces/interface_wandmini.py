@@ -276,21 +276,32 @@ stopSeq: list[Union[Callable, float]] = [
     0.1,
 ]
 
+last_valid_emg = np.zeros((1, len(channels_selected)), dtype=np.float32)
+
 def decodeFn(data: bytes):
-    # CRC check
-    if data[1] != 198:
-        return {"emg": np.zeros((1, len(channels_selected)), dtype=np.float32)}
+    global last_valid_emg
 
-    raw_bytes = data[2:]
-    values = []
+    if data[0] != 0x00 or data[1] != 198:
+        # Reuse last good sample instead of injecting zeros
+        logging.debug("Bad CRC or packet ID — reusing last valid EMG data")
+        return {"emg": last_valid_emg.copy()}
 
+    payload = data[2:]
+    channels = []
+
+    for i in range(total_channels):
+        low_byte = payload[2*i]
+        high_byte = payload[2*i + 1]
+        value = (high_byte << 8) | low_byte
+        channels.append(value)
+
+    selected_values = []
     for ch in channels_selected:
         if 0 <= ch < total_channels:
-            i = 2 * ch
-            value = raw_bytes[i + 1] << 8 | raw_bytes[i]
-            values.append(value)
+            selected_values.append(channels[ch])
         else:
             logging.warning(f"Channel {ch} out of range")
 
-    emg = np.array(values, dtype=np.float32).reshape(1, len(channels_selected))
+    emg = np.array(selected_values, dtype=np.float32).reshape(1, -1)
+    last_valid_emg = emg  # store for next time
     return {"emg": emg}
