@@ -156,7 +156,7 @@ class Cp2130DataSourceWorker(DataSourceWorker):
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._collectData)
-        self._timer.setInterval(10)
+        self._timer.setInterval(.8)
 
         self.destroyed.connect(self.deleteLater)
 
